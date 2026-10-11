@@ -6,3 +6,7 @@
 - `src`: implementation of distributed logic.
 - `test`: unit test files.
 - `start.cpp`: a starter demo for HorizANN
+
+## Dependencies
+
+gRPC, RocksDB, googletest, protobuf, yaml-cpp, hnswlib, FeatureDetector.
