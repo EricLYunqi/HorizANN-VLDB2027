@@ -1,4 +1,4 @@
-# HorizANN (SIGMOD 2027)
+# HorizANN
 
 - `config`: config file for local deployment, where each worker is one process, communicating via gRPC.
 - `include`: header files majorly adapted from `hnswlib`, including modified HNSW index.
