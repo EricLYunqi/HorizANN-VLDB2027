@@ -1,0 +1,50 @@
+# Build directories
+/build/
+CMakeFiles/
+cmake-build-*/
+
+# CMake generated files
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+compile_commands.json
+
+# Compiled objects/libraries
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+
+# Executables/binaries
+*.exe
+*.out
+a.out
+DistributedHNSW
+SplitExperiments
+main
+
+# Large data artifacts
+*.bin
+
+# Keep an empty data directory
+data/**
+!data/.gitkeep
+
+# Logs and temp files
+*.log
+*.tmp
+
+# Editor/OS files
+.DS_Store
+*.swp
+*.swo
+.vscode/
+.idea/
+
+grpc/
+
+proto/ann.grpc.pb.cc
+proto/ann.grpc.pb.h
+proto/ann.pb.cc
+proto/ann.pb.h

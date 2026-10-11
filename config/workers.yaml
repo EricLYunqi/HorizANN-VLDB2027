@@ -1,0 +1,46 @@
+ workers:
+  - id: 1
+    host: 127.0.0.1
+    port: 50052
+    dimension: 128
+  - id: 2
+    host: 127.0.0.1
+    port: 50053
+    dimension: 128
+  - id: 3
+    host: 127.0.0.1
+    port: 50054
+    dimension: 128
+  - id: 4
+    host: 127.0.0.1
+    port: 50055
+    dimension: 128
+  - id: 5
+    host: 127.0.0.1
+    port: 50056
+    dimension: 128
+  - id: 6
+    host: 127.0.0.1
+    port: 50057
+    dimension: 128
+  - id: 7
+    host: 127.0.0.1
+    port: 50058
+    dimension: 128
+  - id: 8
+    host: 127.0.0.1
+    port: 50059
+    dimension: 128
+  - id: 9
+    host: 127.0.0.1
+    port: 50060
+    dimension: 128
+  - id: 10
+    host: 127.0.0.1
+    port: 50061
+    dimension: 128
+ master:
+  host: 0.0.0.0
+  port: 50051
+  dimension: 128
+

@@ -1,0 +1,243 @@
+syntax = "proto3";
+
+package ann;
+
+// --- Messages ---
+
+// Client query for search
+message Query {
+  bytes vector_data = 1; // float32 LE bytes, length = dim * 4
+  int32 k = 2;               // number of neighbors
+  int32 query_id = 3;
+}
+
+// Neighbor result
+message Neighbor {
+  int64 id = 1;
+  float distance = 2;
+}
+
+// Worker result (local top-k)
+message WorkerResult {
+  int32 worker_id = 1;
+  repeated Neighbor results = 2;
+  int32 query_id = 3;
+}
+
+// Aggregated result (final top-k)
+message AggregatedResult {
+  repeated Neighbor topk = 1;
+}
+
+// Batched query request — flat byte buffer, uniform k per batch
+message BatchedQuery {
+  bytes vectors_data = 1;      // batch_size * dim * 4 bytes, row-major float32 LE
+  int32 batch_size = 2;
+  int32 k = 3;
+  repeated int32 query_ids = 4; // one per query (packed by default in proto3)
+  optional int32 efsearch = 5;  // per-batch ef_search for worker-local HNSW
+  int32 router_k = 6;           // per-batch k for the master router HNSW (-1/default means fallback)
+}
+
+// Batched worker result
+message BatchedWorkerResult {
+  int32 worker_id = 1;
+  repeated WorkerResult results = 2;
+}
+
+// Batched aggregated result
+message BatchedAggregatedResult {
+  repeated AggregatedResult results = 1;
+}
+
+// Batched insert request — flat byte buffer
+message BatchedInsertData {
+  bytes vectors_data = 1;      // batch_size * dim * 4 bytes, row-major float32 LE
+  repeated int64 ids = 2;      // one per vector (packed by default in proto3)
+  int32 batch_size = 3;
+}
+
+// Batched insert acknowledgment
+message BatchedInsertAck {
+  repeated InsertAck acks = 1;
+}
+
+// Ghost edges for a single inserted vector, sent from master to resident worker in Phase 3
+message GhostEdgeEntry {
+  int64 inserted_id = 1;
+  repeated Neighbor ghost_neighbors = 2;
+}
+
+message BatchedAddGhostEdgesRequest {
+  repeated GhostEdgeEntry entries = 1;
+}
+
+message BatchedAddGhostEdgesAck {
+  bool success = 1;
+}
+
+// Insert request
+message InsertData {
+  int64 id = 1;
+  bytes vector_data = 2; // float32 LE bytes, length = dim * 4
+}
+
+// Insert acknowledgment
+message InsertAck {
+  bool success = 1;
+}
+
+// Split request to a worker: instructs it to split its index into two
+message SplitRequest {
+  string free_worker_address = 1; // gRPC address of spare worker to receive second child
+}
+
+// Split response: returns new centroids and counts plus the new worker address
+message SplitResponse {
+  bool success = 1;
+  bytes old_centroid_data = 2; // float32 LE bytes
+  bytes new_centroid_data = 3; // float32 LE bytes
+  int64 old_nodes = 5;
+  int64 new_nodes = 6;
+}
+
+// Load index on a worker from a local filesystem path
+message LoadIndexResponse {
+  bool success = 1;
+}
+
+// Streaming upload of an index file in chunks
+message IndexChunk {
+  bytes data = 1;
+}
+
+// Request sampled points from a worker partition
+message SamplePointsRequest {
+  int32 num_points = 1; // number of points to sample (m/c)
+}
+
+// Response chunk with sampled points (streamed)
+message SamplePointsChunk {
+  repeated SamplePoint points = 1; // batch of sampled points
+  bool is_last_chunk = 2; // true if this is the last chunk
+}
+
+// A single sampled point
+message SamplePoint {
+  bytes vector_data = 1; // float32 LE bytes, length = dim * 4
+}
+
+// Analyze migration: master sends all balanced k-means centroids to a worker,
+// and the worker checks every point to see which centroid is nearest.
+message AnalyzeMigrationRequest {
+  bytes centroids_data = 1;       // num_centroids * dimension * 4 bytes, float32 LE
+  int32 num_centroids = 2;        // k
+  int32 dimension = 3;            // dimensionality of each centroid
+  int32 assigned_centroid_idx = 4; // which centroid is assigned to this worker
+  repeated float cluster_price = 5; // per-centroid price bias, size num_centroids; empty means all zero
+  bool compute_vector_sums = 6;     // if true, also return per-centroid vector sums
+}
+
+message MigrationCount {
+  int32 target_centroid_idx = 1;
+  int64 count = 2;
+}
+
+message CentroidVectorSum {
+  int32 centroid_idx = 1;
+  bytes vector_sum_data = 2; // float32 LE bytes, length = dimension * 4
+}
+
+message AnalyzeMigrationResponse {
+  int64 total_points = 1;
+  int64 staying_points = 2;
+  int64 migrating_points = 3;
+  repeated MigrationCount migration_breakdown = 4; // per-destination breakdown
+  double distortion = 5; // sum over this worker's points of score(point, nearest centroid)
+  repeated CentroidVectorSum centroid_vector_sums = 6; // only populated if compute_vector_sums was set
+}
+
+// Rebalance: master sends new centroids + centroid-to-worker mapping.
+message CentroidWorkerMapping {
+  int32 centroid_idx = 1;
+  string worker_address = 2;
+}
+
+message GetCurrentElementCountRequest {}
+
+message GetCurrentElementCountResponse {
+  int64 element_count = 1;
+}
+
+// Ghost vs. normal HNSW edge counts, reported once at the end of an experiment.
+message GetEdgeStatsRequest {}
+
+message EdgeStatsResponse {
+  int64 element_count = 1;
+  int64 normal_edge_count = 2;
+  int64 ghost_edge_count = 3;
+  int64 ghost_linked_vector_count = 4; // vectors with >=1 ghost edge (subset of element_count)
+}
+
+message WorkerEdgeStats {
+  string worker_address = 1;
+  EdgeStatsResponse stats = 2;
+}
+
+message GetClusterEdgeStatsRequest {}
+
+message GetClusterEdgeStatsResponse {
+  repeated WorkerEdgeStats per_worker = 1;
+  EdgeStatsResponse totals = 2;
+}
+
+// prepare (classify, split, save sub-indexes) and execute (stream sub-indexes to destinations).
+message RebalanceRequest {
+  bytes centroids_data = 1;        // num_centroids * dimension * 4 bytes, float32 LE
+  int32 num_centroids = 2;
+  int32 dimension = 3;
+  int32 assigned_centroid_idx = 4; // this worker's centroid
+  repeated CentroidWorkerMapping centroid_to_worker = 5;
+  repeated float cluster_price = 6; // final converged per-centroid price; empty means all zero
+}
+
+message RebalanceResponse {
+  bool success = 1;
+}
+
+// Client request to add a new worker and trigger rebalance
+message AddWorkerRequest {}
+
+message AddWorkerResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// --- Services ---
+
+// RPCs exposed by workers (called by master)
+service WorkerService {
+  rpc Search(Query) returns (WorkerResult);
+  rpc BatchedSearch(BatchedQuery) returns (BatchedWorkerResult);
+  rpc Insert(InsertData) returns (InsertAck);
+  rpc BatchedInsert(BatchedInsertData) returns (BatchedInsertAck);
+  rpc Split(SplitRequest) returns (SplitResponse);
+  rpc TransferIndex(stream IndexChunk) returns (LoadIndexResponse);
+  rpc SamplePoints(SamplePointsRequest) returns (stream SamplePointsChunk);
+  rpc AnalyzeMigration(AnalyzeMigrationRequest) returns (AnalyzeMigrationResponse);
+  rpc Rebalance(RebalanceRequest) returns (RebalanceResponse);
+  rpc MergeIndex(stream IndexChunk) returns (LoadIndexResponse);
+  rpc GetCurrentElementCount(GetCurrentElementCountRequest) returns (GetCurrentElementCountResponse);
+  rpc AddGhostEdges(BatchedAddGhostEdgesRequest) returns (BatchedAddGhostEdgesAck);
+  rpc GetEdgeStats(GetEdgeStatsRequest) returns (EdgeStatsResponse);
+}
+
+// RPCs exposed by master (called by clients)
+service MasterService {
+  rpc Search(Query) returns (AggregatedResult);
+  rpc BatchedSearch(BatchedQuery) returns (BatchedAggregatedResult);
+  rpc Insert(InsertData) returns (InsertAck);
+  rpc BatchedInsert(BatchedInsertData) returns (BatchedInsertAck);
+  rpc AddWorker(AddWorkerRequest) returns (AddWorkerResponse);
+  rpc GetClusterEdgeStats(GetClusterEdgeStatsRequest) returns (GetClusterEdgeStatsResponse);
+}
